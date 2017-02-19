@@ -1,25 +1,33 @@
 /*
 	Marching Squares - CS116B
 	Author: Tom Ryan
-	Last Modified: 02/16/17
+	Last Modified: 02/18/17
 */
 
-#include <iostream>
 #include <stdlib.h>
 #include <math.h>
 #include <ctime>
 #include <vector>
 #include <queue>
 
-#include <GLUT/glut.h>
+#ifdef __APPLE__
+	#include <OpenGL/gl.h>
+	#include <OpenGL/glu.h>
+	#include <GLUT/glut.h>
+#elif __linux__
+	#include <GL/gl.h>
+	#include <GLUT/glut.h>
+#elif _WIN32
+	#include <GLUT/glut.h>
+#endif
 
 #ifndef PI
 	#define PI 3.14159265358979323846
 #endif
 
-//////////////////////////////
-// Super Important Constants
-//////////////////////////
+/////////////////////////
+// Scene & Window Const
+/////////////////////
 
 const GLint WIDTH = 800;
 const GLint HEIGHT = 800;
@@ -30,18 +38,9 @@ const GLfloat DIMENSION = 100;
 const GLfloat SQUARE_WIDTH = 2.0f;
 const GLfloat VIEW_SCALAR = (FOV / (100.0f * DIMENSION));
 
-//////////////////////
-// Future components
-//////////////////
-
-typedef struct CamDirection {
-	bool up;
-	bool down;
-	bool left;
-	bool right;
-	bool forward;
-	bool backward;
-} CamDirection;
+//////////////////////////////
+// Vector Maths Declarations
+//////////////////////////
 
 typedef struct vec3 {
 	GLfloat x;
@@ -56,11 +55,17 @@ typedef struct vec4 {
 	GLfloat w;
 } vec4;
 
-typedef struct Camera {
-	vec3 position;
-	vec3 facing;
-	vec3 up;
-} Camera;
+GLfloat magnitude(const vec3 &vec);
+vec3 normalize(const vec3 &vec);
+vec3 cross(const vec3 &u, const vec3 &v);
+vec3 operator/(const vec3 &vec, const GLfloat &scalar);
+vec3 operator*(const vec3 &vec, const GLfloat &scalar);
+vec3 operator+(const vec3 &u, const vec3 &v);
+vec3 operator-(const vec3 &u, const vec3 &v);
+
+//////////////////////////////////
+// Marching Squares Declarations
+//////////////////////////////
 
 typedef enum Direction {
 	NE,
@@ -74,271 +79,23 @@ typedef enum Direction {
 } Direction;
 
 typedef enum MarchingSquareState {
-	TOP_LEFT, 
+	TOP_LEFT,
 	BOT_LEFT,
-	LEFT, 
+	LEFT,
 	BOT_RIGHT,
 	NEG_DIAG,
 	BOTTOM,
-	INV_TOP_RIGHT, 
+	INV_TOP_RIGHT,
 	TOP_RIGHT,
 	UPPER,
 	POS_DIAG,
 	INV_BOT_RIGHT,
 	RIGHT,
 	INV_BOT_LEFT,
-	INV_TOP_LEFT,		
+	INV_TOP_LEFT,
 	FILLED,
 	EMPTY
 } MarchingSquareState;
-
-//////////////////
-// Lookup Tables
-//////////////
-
-std::vector<std::vector<GLfloat> > squareStateLookup {
-	// TOP_LEFT
-	{ -0.1f, 1.0f, -1.0f,
-	  -1.0f, 1.0f, -1.0f,
-	  -1.0f, 0.1f, -1.0f },
-
-	// BOT_LEFT
-	{ -1.0f, -1.0f, -1.0f,
-      -0.1f, -1.0f, -1.0f,
-	  -1.0f, -0.1f, -1.0f },
-		
-	// LEFT
-	{ -1.0f, -1.0f, -1.0f,
-	  -0.1f, -1.0f, -1.0f,
-	  -1.0f, 0.0f, -1.0f,
-
-	  -0.1f, -1.0f, -1.0f,
-	  -0.1f, 1.0f, -1.0f,
-	  -1.0f, 0.0f, -1.0f,
-
-	  -1.0f, 0.0f, -1.0f,
-	  -1.0f, 1.0f, -1.0f,
-	  -0.1f, 1.0f, -1.0f },
-	
-	// BOT_RIGHT
-	{ 0.1f, -1.0f, -1.0f,
-	  1.0f, -1.0f, -1.0f,
-	  1.0f, -0.1f, -1.0f },
-
-	// NEG_DIAG
-	{ 0.1f, -1.0f, -1.0f,
-	  1.0f, -1.0f, -1.0f,
-	  1.0f, -0.1f, -1.0f,
-
-	  -0.1f, 1.0f, -1.0f,
-	  -1.0f, 1.0f, -1.0f,
-	  -1.0f, 0.1f, -1.0f,
-
-	  -1.0f, 0.1f, -1.0f,
-	  0.1f, -1.0f, -1.0f,
-	  1.0f, -0.1f, -1.0f,
-
-	  1.0f, -0.1f, -1.0f,
-	  -0.1f, 1.0f, -1.0f,
-	  -1.0f, 0.1f, -1.0f },
-	
-	// BOTTOM
-	{ 0.0f, -1.0f, -1.0f,
-	  1.0f, -1.0f, -1.0f,
-	  1.0f, -0.1f, -1.0f,
-
-	  1.0f, -0.1f, -1.0f,
-	  -1.0f, -0.1f, -1.0f,
-	  0.0f, -1.0f, -1.0f,
-
-	  -1.0f, -0.1f, -1.0f,
-	  -1.0f, -1.0f, -1.0f,
-	  0.0f, -1.0f, -1.0f },
-
-	// INV_TOP_RIGHT
-	{ -1.0f, -1.0f, -1.0f,
-	  -0.1f, -1.0f, -1.0f,
-	  -1.0f, -0.1f, -1.0f,
-
-	  -0.1f, -1.0f, -1.0f,
-	  1.0f, -1.0f, -1.0f,
-	  1.0f, 0.1f, -1.0f,
-
-	  -0.1f, -1.0f, -1.0f,
-	  1.0f, 0.1f, -1.0f,
-	  -1.0f, -0.1f, -1.0f,
-
-	  -1.0f, -0.1f, -1.0f,
-	  1.0f, 0.1f, -1.0f,
-	  0.1f, 1.0f, -1.0f,
-
-	  0.1f, 1.0f, -1.0f,
-	  -1.0f, 1.0f, -1.0f,
-	  -1.0f, -0.1f, -1.0f },
-	  
-	  // TOP_RIGHT
-	{ 1.0f, 0.1f, -1.0f,
-	  1.0f, 1.0f, -1.0f,
-	  0.1f, 1.0f, -1.0f },
-	
-	// UPPER
-	{ 0.0f, 1.0f, -1.0f,
-	  -1.0f, 1.0f, -1.0f,
-	  -1.0f, 0.1f, -1.0f,
-
-	  -1.0f, 0.1f, -1.0f,
-	  1.0f, 0.1f, -1.0f,
-	  0.0f, 1.0f, -1.0f,
-
-	  1.0f, 0.1f, -1.0f,
-	  1.0f, 1.0f, -1.0f,
-	  0.0f, 1.0f, -1.0f },
-	
-	// POS_DIAG
-	{ -1.0f, -1.0f, -1.0f,
-	  -0.1f, -1.0f, -1.0f,
-	  -1.0f, -0.1f, -1.0f,
-
-	  -0.1f, -1.0f, -1.0f,
-	  1.0f, 0.1f, -1.0f,
-	  -1.0f, -0.1f, -1.0f,
-
-	  -1.0f, -0.1f, -1.0f,
-	  0.1f, 1.0f, -1.0f,
-	  1.0f, 0.1f, -1.0f,
-
-	  1.0f, 0.1f, -1.0f,
-	  1.0f, 1.0f, -1.0f,
-	  0.1f, 1.0f, -1.0f },
-	
-	// INV_BOT_RIGHT
-	{ 1.0f, 1.0f, -1.0f,
-	  -0.1f, 1.0f, -1.0f,
-	  1.0f, -0.1f, -1.0f,
-
-	  -0.1f, 1.0f, -1.0f,
-	  -1.0f, 1.0f, -1.0f,
-	  -1.0f, 0.1f, -1.0f,
-
-	  -1.0f, 0.1f, -1.0f,
-	  -1.0f, -1.0f, -1.0f,
-	  0.1f, -1.0f, -1.0f,
-
-	  0.1f, -1.0f, -1.0f,
-	  1.0f, -0.1f, -1.0f,
-	  -1.0f, 0.1f, -1.0f,
-
-	  -1.0f, 0.1f, -1.0f,
-	  -0.1f, 1.0f, -1.0f,
-	  1.0f, -0.1f, -1.0f },
-	
-	// RIGHT
-	{ 1.0f, 1.0f, -1.0f,
-	  0.1f, 1.0f, -1.0f,
-	  1.0f, 0.0f, -1.0f,
-
-	  0.1f, 1.0f, -1.0f,
-	  0.1f, -1.0f, -1.0f,
-	  1.0f, 0.0f, -1.0f,
-
-	  1.0f, 0.0f, -1.0f,
-	  1.0f, -1.0f, -1.0f,
-	  0.1f, -1.0f, -1.0f },
-
-	// INV_BOT_LEFT
-	{ 1.0f, 1.0f, -1.0f,
-	  0.1f, 1.0f, -1.0f,
-	  1.0f, 0.1f, -1.0f,
-
-	  0.1f, 1.0f, -1.0f,
-	  -1.0f, 1.0f, -1.0f,
-	  -1.0f, -0.1f, -1.0f,
-
-	  0.1f, 1.0f, -1.0f,
-	  -1.0f, -0.1f, -1.0f,
-	  1.0f, 0.1f, -1.0f,
-
-	  1.0f, 0.1f, -1.0f,
-	  -1.0f, -0.1f, -1.0f,
-	  -0.1f, -1.0f, -1.0f,
-
-	  -0.1f, -1.0f, -1.0f,
-	  1.0f, -1.0f, -1.0f,
-	  1.0f, 0.1f, -1.0f },
-
-	// INV_TOP_LEFT
-	{ -1.0f, -1.0f, -1.0f,
-	  0.1f, -1.0f, -1.0f,
-	  -1.0f, 0.1f, -1.0f,
-
-	  0.1f, -1.0f, -1.0f,
-	  1.0f, -1.0f, -1.0f,
-	  1.0f, -0.1f, -1.0f,
-
-	  1.0f, -0.1f, -1.0f,
-	  1.0f, 1.0f, -1.0f,
-	  -0.1f, 1.0f, -1.0f,
-
-	  -0.1f, 1.0f, -1.0f,
-	  -1.0f, 0.1f, -1.0f,
-	  1.0f, -0.1f, -1.0f,
-
-	  1.0f, -0.1f, -1.0f,
-	  0.1f, -1.0f, -1.0f,
-	  -1.0f, 0.1f, -1.0f },
-	
-	// FILLED
-	{ 0.0f, 1.0f, -1.0f,
-	  -1.0f, 1.0f, -1.0f,
-	  -1.0f, 0.0f, -1.0f,
-
-	  -1.0f, 0.0f, -1.0f,
-	  1.0f, 0.0f, -1.0f,
-	  0.0f, 1.0f, -1.0f,
-
-	  1.0f, 0.0f, -1.0f,
-	  1.0f, 1.0f, -1.0f,
-	  0.0f, 1.0f, -1.0f,
-
-	  0.0f, -1.0f, -1.0f,
-	  1.0f, -1.0f, -1.0f,
-	  1.0f, -0.0f, -1.0f,
-
-	  1.0f, -0.0f, -1.0f,
-	  -1.0f, -0.0f, -1.0f,
-	  0.0f, -1.0f, -1.0f,
-
-	  -1.0f, -0.0f, -1.0f,
-	  -1.0f, -1.0f, -1.0f,
-	  0.0f, -1.0f, -1.0f }
-};
-
-vec3 directionsLookup[] {
-	vec3{ 1.0f, 1.0f, 0.0f },
-	vec3{ 0.0f, 1.0f, 0.0f },
-	vec3{ -1.0f, 1.0f, 0.0f },
-	vec3{ -1.0f, 0.0f, 0.0f },
-	vec3{ -1.0f, -1.0f, 0.0f },
-	vec3{ 0.0f, -1.0f, 0.0f },
-	vec3{ 1.0f, -1.0f, 0.0f },
-	vec3{ 1.0f, 0.0f, 0.0f }
-};
-
-//////////////////////////
-// 3D Maths Declarations
-//////////////////////
-
-GLfloat magnitude(const vec3 &vec);
-vec3 normalize(const vec3 &vec);
-vec3 cross(const vec3 &u, const vec3 &v);
-vec3 operator/(const vec3 &vec, const GLfloat &scalar);
-vec3 operator*(const vec3 &vec, const GLfloat &scalar);
-vec3 operator+(const vec3 &u, const vec3 &v);
-vec3 operator-(const vec3 &u, const vec3 &v);
-
-///////////////////////
-// Class Declarations
-////////////////////
 
 class Ball {
 	private:
@@ -350,11 +107,11 @@ class Ball {
 		bool outOfBounds;
 
 	public:
-		Ball(GLfloat radius, GLfloat speed = 3, vec3 position = vec3{ 0.0f, 0.0f, 0.0f },
+		Ball(GLfloat radius, GLfloat speed = 3.0f, vec3 position = vec3{ 0.0f, 0.0f, 0.0f },
 			vec3 facing = vec3{ 1.0f, 1.0f, 0.0f }, vec4 color = vec4{ 1.0f, 1.0f, 1.0f });
 		bool contains(vec3 point);
 		void move();
-		void bounce(vec3 bounceFacing);
+		void bounce(const vec3 &normal);
 		GLfloat getRadius();
 		vec3 getPosition();
 		vec3 getFacing();
@@ -387,7 +144,7 @@ class MarchingSquare {
 						vec4 color = vec4{ 0.2f, 0.29f, 0.82f, 1.0f }, 
 						MarchingSquareState state = EMPTY);
 		bool contains(vec3 point);
-		void activate(vec4 color, MarchingSquareState state);
+		void activate(const vec4 &color, MarchingSquareState state);
 		void emptyState();
 		vec3 getPosition();
 		vec3 botLeft();
@@ -413,9 +170,31 @@ class SceneBounds {
 		vec3 getWallNormal(Ball &ball);
 };
 
-//////////////////////
-// Func Declarations
-//////////////////
+MarchingSquare* findSquare(const vec3 &pos);
+void resolveSquareStates(Ball &ball, MarchingSquare &square);
+void activateSquare(MarchingSquare &square, Ball &ball, int state);
+Direction generateDirection();
+void populateGrid();
+void generateShapes(int numShapes);
+
+////////////////////////
+// OpenGL Declarations
+////////////////////
+
+typedef struct CamDirection {
+	bool up;
+	bool down;
+	bool left;
+	bool right;
+	bool forward;
+	bool backward;
+} CamDirection;
+
+typedef struct Camera {
+	vec3 position;
+	vec3 facing;
+	vec3 up;
+} Camera;
 
 void initOpenGL();
 void resetProjection();
@@ -425,21 +204,241 @@ void driver();
 
 void keyboardHandler(unsigned char key, int x, int y);
 
-//////////////////////////////////
-// Marching Squares Declarations
-//////////////////////////////
-
-//Direction generateBounceFacing(Ball &ball);
-MarchingSquare* findSquare(const vec3 &pos);
-void resolveSquareStates(Ball &ball, MarchingSquare &square);
-void activateSquare(MarchingSquare &square, Ball &ball, int state);
-Direction generateDirection();
-void populateGrid();
-void generateShapes(int numShapes);
-
-//////////////////////
-// Temporary Globals
 //////////////////
+// Lookup Tables
+//////////////
+
+std::vector<std::vector<GLfloat> > squareStateLookup{
+	// TOP_LEFT
+	{ -0.1f, 1.0f, -1.0f,
+	-1.0f, 1.0f, -1.0f,
+	-1.0f, 0.1f, -1.0f },
+
+	// BOT_LEFT
+	{ -1.0f, -1.0f, -1.0f,
+	-0.1f, -1.0f, -1.0f,
+	-1.0f, -0.1f, -1.0f },
+
+	// LEFT
+	{ -1.0f, -1.0f, -1.0f,
+	-0.1f, -1.0f, -1.0f,
+	-1.0f, 0.0f, -1.0f,
+
+	-0.1f, -1.0f, -1.0f,
+	-0.1f, 1.0f, -1.0f,
+	-1.0f, 0.0f, -1.0f,
+
+	-1.0f, 0.0f, -1.0f,
+	-1.0f, 1.0f, -1.0f,
+	-0.1f, 1.0f, -1.0f },
+
+	// BOT_RIGHT
+	{ 0.1f, -1.0f, -1.0f,
+	1.0f, -1.0f, -1.0f,
+	1.0f, -0.1f, -1.0f },
+
+	// NEG_DIAG
+	{ 0.1f, -1.0f, -1.0f,
+	1.0f, -1.0f, -1.0f,
+	1.0f, -0.1f, -1.0f,
+
+	-0.1f, 1.0f, -1.0f,
+	-1.0f, 1.0f, -1.0f,
+	-1.0f, 0.1f, -1.0f,
+
+	-1.0f, 0.1f, -1.0f,
+	0.1f, -1.0f, -1.0f,
+	1.0f, -0.1f, -1.0f,
+
+	1.0f, -0.1f, -1.0f,
+	-0.1f, 1.0f, -1.0f,
+	-1.0f, 0.1f, -1.0f },
+
+	// BOTTOM
+	{ 0.0f, -1.0f, -1.0f,
+	1.0f, -1.0f, -1.0f,
+	1.0f, -0.1f, -1.0f,
+
+	1.0f, -0.1f, -1.0f,
+	-1.0f, -0.1f, -1.0f,
+	0.0f, -1.0f, -1.0f,
+
+	-1.0f, -0.1f, -1.0f,
+	-1.0f, -1.0f, -1.0f,
+	0.0f, -1.0f, -1.0f },
+
+	// INV_TOP_RIGHT
+	{ -1.0f, -1.0f, -1.0f,
+	-0.1f, -1.0f, -1.0f,
+	-1.0f, -0.1f, -1.0f,
+
+	-0.1f, -1.0f, -1.0f,
+	1.0f, -1.0f, -1.0f,
+	1.0f, 0.1f, -1.0f,
+
+	-0.1f, -1.0f, -1.0f,
+	1.0f, 0.1f, -1.0f,
+	-1.0f, -0.1f, -1.0f,
+
+	-1.0f, -0.1f, -1.0f,
+	1.0f, 0.1f, -1.0f,
+	0.1f, 1.0f, -1.0f,
+
+	0.1f, 1.0f, -1.0f,
+	-1.0f, 1.0f, -1.0f,
+	-1.0f, -0.1f, -1.0f },
+
+	// TOP_RIGHT
+	{ 1.0f, 0.1f, -1.0f,
+	1.0f, 1.0f, -1.0f,
+	0.1f, 1.0f, -1.0f },
+
+	// UPPER
+	{ 0.0f, 1.0f, -1.0f,
+	-1.0f, 1.0f, -1.0f,
+	-1.0f, 0.1f, -1.0f,
+
+	-1.0f, 0.1f, -1.0f,
+	1.0f, 0.1f, -1.0f,
+	0.0f, 1.0f, -1.0f,
+
+	1.0f, 0.1f, -1.0f,
+	1.0f, 1.0f, -1.0f,
+	0.0f, 1.0f, -1.0f },
+
+	// POS_DIAG
+	{ -1.0f, -1.0f, -1.0f,
+	-0.1f, -1.0f, -1.0f,
+	-1.0f, -0.1f, -1.0f,
+
+	-0.1f, -1.0f, -1.0f,
+	1.0f, 0.1f, -1.0f,
+	-1.0f, -0.1f, -1.0f,
+
+	-1.0f, -0.1f, -1.0f,
+	0.1f, 1.0f, -1.0f,
+	1.0f, 0.1f, -1.0f,
+
+	1.0f, 0.1f, -1.0f,
+	1.0f, 1.0f, -1.0f,
+	0.1f, 1.0f, -1.0f },
+
+	// INV_BOT_RIGHT
+	{ 1.0f, 1.0f, -1.0f,
+	-0.1f, 1.0f, -1.0f,
+	1.0f, -0.1f, -1.0f,
+
+	-0.1f, 1.0f, -1.0f,
+	-1.0f, 1.0f, -1.0f,
+	-1.0f, 0.1f, -1.0f,
+
+	-1.0f, 0.1f, -1.0f,
+	-1.0f, -1.0f, -1.0f,
+	0.1f, -1.0f, -1.0f,
+
+	0.1f, -1.0f, -1.0f,
+	1.0f, -0.1f, -1.0f,
+	-1.0f, 0.1f, -1.0f,
+
+	-1.0f, 0.1f, -1.0f,
+	-0.1f, 1.0f, -1.0f,
+	1.0f, -0.1f, -1.0f },
+
+	// RIGHT
+	{ 1.0f, 1.0f, -1.0f,
+	0.1f, 1.0f, -1.0f,
+	1.0f, 0.0f, -1.0f,
+
+	0.1f, 1.0f, -1.0f,
+	0.1f, -1.0f, -1.0f,
+	1.0f, 0.0f, -1.0f,
+
+	1.0f, 0.0f, -1.0f,
+	1.0f, -1.0f, -1.0f,
+	0.1f, -1.0f, -1.0f },
+
+	// INV_BOT_LEFT
+	{ 1.0f, 1.0f, -1.0f,
+	0.1f, 1.0f, -1.0f,
+	1.0f, 0.1f, -1.0f,
+
+	0.1f, 1.0f, -1.0f,
+	-1.0f, 1.0f, -1.0f,
+	-1.0f, -0.1f, -1.0f,
+
+	0.1f, 1.0f, -1.0f,
+	-1.0f, -0.1f, -1.0f,
+	1.0f, 0.1f, -1.0f,
+
+	1.0f, 0.1f, -1.0f,
+	-1.0f, -0.1f, -1.0f,
+	-0.1f, -1.0f, -1.0f,
+
+	-0.1f, -1.0f, -1.0f,
+	1.0f, -1.0f, -1.0f,
+	1.0f, 0.1f, -1.0f },
+
+	// INV_TOP_LEFT
+	{ -1.0f, -1.0f, -1.0f,
+	0.1f, -1.0f, -1.0f,
+	-1.0f, 0.1f, -1.0f,
+
+	0.1f, -1.0f, -1.0f,
+	1.0f, -1.0f, -1.0f,
+	1.0f, -0.1f, -1.0f,
+
+	1.0f, -0.1f, -1.0f,
+	1.0f, 1.0f, -1.0f,
+	-0.1f, 1.0f, -1.0f,
+
+	-0.1f, 1.0f, -1.0f,
+	-1.0f, 0.1f, -1.0f,
+	1.0f, -0.1f, -1.0f,
+
+	1.0f, -0.1f, -1.0f,
+	0.1f, -1.0f, -1.0f,
+	-1.0f, 0.1f, -1.0f },
+
+	// FILLED
+	{ 0.0f, 1.0f, -1.0f,
+	-1.0f, 1.0f, -1.0f,
+	-1.0f, 0.0f, -1.0f,
+
+	-1.0f, 0.0f, -1.0f,
+	1.0f, 0.0f, -1.0f,
+	0.0f, 1.0f, -1.0f,
+
+	1.0f, 0.0f, -1.0f,
+	1.0f, 1.0f, -1.0f,
+	0.0f, 1.0f, -1.0f,
+
+	0.0f, -1.0f, -1.0f,
+	1.0f, -1.0f, -1.0f,
+	1.0f, -0.0f, -1.0f,
+
+	1.0f, -0.0f, -1.0f,
+	-1.0f, -0.0f, -1.0f,
+	0.0f, -1.0f, -1.0f,
+
+	-1.0f, -0.0f, -1.0f,
+	-1.0f, -1.0f, -1.0f,
+	0.0f, -1.0f, -1.0f }
+};
+
+vec3 directionsLookup[]{
+	vec3{ 1.0f, 1.0f, 0.0f },
+	vec3{ 0.0f, 1.0f, 0.0f },
+	vec3{ -1.0f, 1.0f, 0.0f },
+	vec3{ -1.0f, 0.0f, 0.0f },
+	vec3{ -1.0f, -1.0f, 0.0f },
+	vec3{ 0.0f, -1.0f, 0.0f },
+	vec3{ 1.0f, -1.0f, 0.0f },
+	vec3{ 1.0f, 0.0f, 0.0f }
+};
+
+////////////
+// Globals
+////////
 
 std::vector<std::vector<MarchingSquare> > grid;
 std::queue<MarchingSquare*> activeSquares;
@@ -476,7 +475,7 @@ int main(int argc, char *argv[]) {
 	window = glutCreateWindow("Marching Squares");
 
 	// Setting renderer callback functions
-	glutDisplayFunc(&driver);
+	glutDisplayFunc(&draw);
 	glutIdleFunc(&driver);
 	glutReshapeFunc(&resizeViewport);
 
@@ -493,9 +492,7 @@ int main(int argc, char *argv[]) {
 // OpenGL Related Functions
 /////////////////////////
 
-// Initializes OpenGL state
 void initOpenGL() {
-	// Enabling depth testing
 	glEnable(GL_DEPTH_TEST);
 
 	// Setting shading technique to interpolate colors
@@ -508,6 +505,7 @@ void initOpenGL() {
 	glMatrixMode(GL_MODELVIEW);
 	glLoadIdentity();
 
+	// Positioning camera to look down the z-axis
 	gluLookAt(camera.position.x, camera.position.y, camera.position.z,
 		camera.facing.x, camera.facing.y, camera.facing.z,
 		camera.up.x, camera.up.y, camera.up.z);
@@ -519,7 +517,6 @@ void resetProjection() {
 	glLoadIdentity();
 
 	gluPerspective(FOV, ASPECT, 0.1, 10.0f);
-	//glOrtho(-1.0, 1.0, -1.0, 1.0, 1.0, 10.0);
 }
 
 // Adjust OpenGL state on window resize
@@ -539,11 +536,13 @@ void resizeViewport(GLint width, GLint height) {
 	glMatrixMode(GL_MODELVIEW);
 	glLoadIdentity();
 
+	// Positioning camera to look down the z-axis
 	gluLookAt(camera.position.x, camera.position.y, camera.position.z,
 		camera.facing.x, camera.facing.y, camera.facing.z,
 		camera.up.x, camera.up.y, camera.up.z);
 }
 
+// Main "loop" since GLUT is event driven
 void driver() {
 	// Looking for out of bounds shapes
 	for (unsigned int i = 0; i < balls.size(); i++) {
@@ -552,8 +551,8 @@ void driver() {
 		// Reorienting shapes if out of bounds
 		if (!balls.at(i).isOutOfBounds() && sceneBounds.outOfBounds(balls.at(i))) {
 			balls.at(i).setOutOfBounds();
+			// Generating new facing from wall normal
 			balls.at(i).bounce(sceneBounds.getWallNormal(balls.at(i)));
-			//balls.at(i).move();
 		} else if(balls.at(i).isOutOfBounds()) {
 			// Clearing out of bounds flag once shapes return to scene
 			balls.at(i).clearOutOfBounds();
@@ -577,6 +576,7 @@ void driver() {
 void draw() {
 	std::vector<GLfloat> *verts;
 	std::vector<GLfloat>::iterator vertIter;
+
 	std::vector<Ball> *shapeVerts;
 	std::vector<Ball>::iterator shapeIter;
 
@@ -597,13 +597,13 @@ void draw() {
 		// Vertex data attributes
 		unsigned int vertexDataSize = 3;
 		unsigned int locationBegin = 0;
-		unsigned int colorBegin = 3;
 
 		// Applying transformations
 		glPushMatrix();
 		glScalef(VIEW_SCALAR, VIEW_SCALAR, VIEW_SCALAR);
 		glTranslatef(square->getPosition().x, square->getPosition().y, square->getPosition().z);
 
+		// Pushing mesh slightly backward to prevent z-fighting with overlay
 		glPolygonOffset(1.0f, 1.0f);
 		glEnable(GL_POLYGON_OFFSET_FILL);
 		glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
@@ -628,6 +628,7 @@ void draw() {
 			glPushMatrix();
 			glScalef(VIEW_SCALAR, VIEW_SCALAR, VIEW_SCALAR);
 
+			// Bringing outline forward so no z-fighting with mesh
 			glPolygonOffset(-1.0f, -1.0f);
 			glEnable(GL_POLYGON_OFFSET_LINE);
 			glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
@@ -723,19 +724,9 @@ void keyboardHandler(unsigned char key, int x, int y) {
 	}
 }
 
-///////////////////////////////////
-// MarchingSquares Implementation
-///////////////////////////////
-
-//Direction generateBounceFacing(Ball &ball) {
-//	Direction newFacing = generateDirection();
-//
-//	while (ball.getFacing() == newFacing) {
-//		newFacing = generateDirection();
-//	}
-//
-//	return newFacing;
-//}
+//////////////////////////////
+// MarchingSquares functions
+//////////////////////////
 
 MarchingSquare* findSquare(const vec3 &pos) {
 	MarchingSquare *foundSquare = &nullSqr;
@@ -907,7 +898,7 @@ void generateShapes(int numShapes) {
 		{ 0.918f, 0.631f, 0.2f, 1.0f }
 	};
 	
-	GLfloat speed = 4.0f;
+	GLfloat speed = 2.0f;
 
 	// Populating list of shapes
 	for (int i = 0; i < numShapes; i++) {
@@ -928,7 +919,7 @@ void generateShapes(int numShapes) {
 
 		int color = rand() % (1 + 1);
 
-		balls.push_back(Ball(radius, speed, vec3{x, y, -1.0f}, directionsLookup[generateDirection()], colors[color]));
+		balls.push_back(Ball(radius, speed, vec3{x, y, -1.0f}, directionsLookup[generateDirection()], colors[0]));
 	}
 }
 
@@ -967,7 +958,7 @@ void Ball::move() {
 	position = position + (facing * speed);
 }
 
-void Ball::bounce(vec3 normal) {
+void Ball::bounce(const vec3 &normal) {
 	int component = rand() % (3 - 1 + 1) + 1;
 	vec3 vec;
 
@@ -1064,7 +1055,7 @@ bool MarchingSquare::contains(vec3 point) {
 	return contained;
 }
 
-void MarchingSquare::activate(vec4 color, MarchingSquareState state) {
+void MarchingSquare::activate(const vec4 &color, MarchingSquareState state) {
 	this->color = color;
 	this->state = static_cast<MarchingSquareState>(static_cast<int>(this->state) | static_cast<int>(state));
 }
@@ -1147,9 +1138,9 @@ vec3 SceneBounds::getWallNormal(Ball &ball) {
 	return normal;
 }
 
-/////////////
-// 3D Maths
-/////////
+//////////////////////
+// lib: Vector Maths
+//////////////////
 
 GLfloat magnitude(const vec3 &vec) {
 	return sqrt((vec.x * vec.x) + (vec.y * vec.y) + (vec.z * vec.z));
