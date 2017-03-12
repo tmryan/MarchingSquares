@@ -79,6 +79,7 @@ typedef enum Direction {
 } Direction;
 
 typedef enum MarchingSquareState {
+	EMPTY,
 	TOP_LEFT,
 	BOT_LEFT,
 	LEFT,
@@ -93,8 +94,7 @@ typedef enum MarchingSquareState {
 	RIGHT,
 	INV_BOT_LEFT,
 	INV_TOP_LEFT,
-	FILLED,
-	EMPTY
+	FILLED
 } MarchingSquareState;
 
 class Ball {
@@ -208,7 +208,9 @@ void keyboardHandler(unsigned char key, int x, int y);
 // Lookup Tables
 //////////////
 
-std::vector<std::vector<GLfloat> > squareStateLookup{
+std::vector<std::vector<GLfloat> > squareStateLookup {
+	// EMPTY for consistency
+	{},
 	// TOP_LEFT
 	{ -0.1f, 1.0f, -1.0f,
 	-1.0f, 1.0f, -1.0f,
@@ -465,7 +467,7 @@ int main(int argc, char *argv[]) {
 
 	// Initializing scene state
 	populateGrid();
-	generateShapes(3);
+	generateShapes(8);
 
 	// Initializing window
 	glutInit(&argc, argv);
@@ -592,7 +594,7 @@ void draw() {
 		activeSquares.pop();
 
 		// Grabbing next block of vertices
-		verts = &squareStateLookup.at(square->getState() - 1);
+		verts = &squareStateLookup.at(square->getState());
 
 		// Vertex data attributes
 		unsigned int vertexDataSize = 3;
@@ -834,7 +836,6 @@ void activateSquare(MarchingSquare &square, Ball &ball, int state) {
 			square.activate(ball.getColor(), FILLED);
 			break;
 		default:
-			square.activate(ball.getColor(), FILLED);
 			break;
 	}
 
@@ -892,12 +893,14 @@ void populateGrid() {
 
 void generateShapes(int numShapes) {
 	vec4 colors[] = {
+		// Yellow
+		{ 0.918f, 0.769f, 0.2f, 1.0f },
 		// Blue
 		{ 0.2f, 0.29f, 0.82f, 1.0f },
 		// Orange
 		{ 0.918f, 0.631f, 0.2f, 1.0f }
 	};
-	
+
 	GLfloat speed = 2.0f;
 
 	// Populating list of shapes
@@ -919,7 +922,7 @@ void generateShapes(int numShapes) {
 
 		int color = rand() % (1 + 1);
 
-		balls.push_back(Ball(radius, speed, vec3{x, y, -1.0f}, directionsLookup[generateDirection()], colors[0]));
+		balls.push_back(Ball(radius, speed, vec3{ x, y, -1.0f }, directionsLookup[generateDirection()], colors[0]));
 	}
 }
 
